@@ -41,6 +41,12 @@ type char_device = {
   frontend_open : bool;
 }
 
+type panda_plugin_info = {
+  index   : int;
+  name    : string;
+  address : int;
+}
+
 (** QOM properties - https://wiki.qemu.org/index.php/Documentation
                      https://qemu.weilnetz.de/doc/qemu-qmp-ref.html*)
 type qom = {
@@ -93,6 +99,7 @@ type result =
   | Unit
   | Qom of qom list
   | Char_devices of char_device list
+  | Panda_plugin_info of panda_plugin_info
 
 (** A successful RPC result *)
 
@@ -156,7 +163,16 @@ type command =
   | Device_add of device_add_t
   | Device_del of string
   | Qom_list of string
-(** commands that may be sent to qemu *)
+  | Panda_begin_record of string
+  | Panda_begin_record_from of string * string
+  | Panda_end_record
+  | Panda_begin_replay of string
+  | Panda_end_replay
+  | Panda_load_plugin of string option * string * string option
+  | Panda_unload_plugin of int
+  | Panda_list_plugins
+  | Panda_plugin_cmd of string
+(** ommands that may be sent to qemu *)
 
 type message =
     Greeting of greeting

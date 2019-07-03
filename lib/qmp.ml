@@ -48,6 +48,11 @@ type char_device = {
   frontend_open : bool;
 }
 
+type panda_plugin_info = {
+  index   : int;
+  name    : string;
+  address : int;
+}
 
 type qom = {
   name : string;
@@ -128,6 +133,15 @@ type command =
   | Device_add of device_add_t
   | Device_del of string
   | Qom_list of string
+  | Panda_begin_record of string
+  | Panda_begin_record_from of string * string
+  | Panda_end_record
+  | Panda_begin_replay of string
+  | Panda_end_replay
+  | Panda_load_plugin of string option * string * string option
+  | Panda_unload_plugin of int
+  | Panda_list_plugins
+  | Panda_plugin_cmd of string
 
 type result =
   | Name_list of string list
@@ -140,6 +154,7 @@ type result =
   | Unit
   | Qom of qom list
   | Char_devices of char_device list
+  | Panda_plugin_info of panda_plugin_info
 
 type event_data =
   | RTC_CHANGE of int64
@@ -301,6 +316,29 @@ let message_of_string str =
     let qom_list json =
       json |> arguments |> U.member "path" |> U.to_string
     in
+    let panda_begin_record json =
+      json |> arguments |> U.member "file_name" |> U.to_string
+    in
+    let panda_begin_record_from json =
+      let snapshot = json |> arguments |> U.member "snapshot" |> U.to_string in
+      let file_name = json |> arguments |> U.member "file_name" |> U.to_string in
+      (snapshot, file_name)
+    in
+    let panda_begin_replay json =
+      json |> arguments |> U.member "file_name" |> U.to_string
+    in
+    let panda_load_plugin json =
+      let file_name = json |> arguments |> U.member "file_name" |> U.to_string_option in
+      let plugin_name = json |> arguments |> U.member "plugin_name" |> U.to_string in
+      let plugin_args = json |> arguments |> U.member "plugin_args" |> U.to_string_option in
+      (file_name, plugin_name, plugin_args)
+    in
+    let panda_unload_plugin json =
+      json |> arguments |> U.member "index" |> U.to_int
+    in
+    let panda_plugin_cmd json =
+      json |> arguments |> U.member "cmd" |> U.to_string
+    in
     let cmd = match json |> U.member "execute" |> U.to_string with
     | "qmp_capabilities"         -> Qmp_capabilities
     | "stop"                     -> Stop
@@ -325,6 +363,15 @@ let message_of_string str =
     | "device_add"               -> json |> device_add               |> fun x -> Device_add x
     | "device_del"               -> json |> device_del               |> fun x -> Device_del x
     | "qom-list"                 -> json |> qom_list                 |> fun x -> Qom_list x
+    | "begin_record"             -> json |> panda_begin_record       |> fun x -> Panda_begin_record x
+    | "begin_record_from"        -> json |> panda_begin_record_from  |> fun (x, y) -> Panda_begin_record_from (x, y)
+    | "end_record"               -> Panda_end_record
+    | "begin_replay"             -> json |> panda_begin_replay       |> fun x -> Panda_begin_replay
+    | "end_replay"               -> Panda_end_replay
+    | "load_plugin"              -> json |> panda_load_plugin        |> fun (x, y, z) -> Panda_load_plugin (x, y, z)
+    | "unload_plugin"            -> json |> panda_unload_plugin      |> fun x -> Panda_unload_plugin
+    | "list_plugins"             -> Panda_list_plugins
+    | "plugin_cmd"               -> json |> panda_plugin_cmd         |> fun x -> Panda_plugin_cmd x
     | x -> Printf.sprintf "unknown command %s" x |> failwith
     in
     (json |> id, cmd)
@@ -387,6 +434,12 @@ let message_of_string str =
         { Device.VCPU.driver_type; vcpus_count; props; qom_path }
       )
     in
+    let panda_plugin_info json =
+      let index = json |> U.member "index" |> U.to_int in
+      let name = json |> U.member "name" |> U.to_string in
+      let address = json |> U.member "address" |> U.to_string in
+      { index; name; address }
+    in
     let result =
       let return = json |> U.member "return" in
       return |> function
@@ -396,6 +449,7 @@ let message_of_string str =
         | x when x |> subset_of ["type"; "vcpus-count"; "props"] -> return |> hotpluggable_cpus |> fun x -> Hotpluggable_cpus x
         | x when x |> subset_of ["label"; "filename"; "frontend-open"] ->
             return |> char_devices |> fun xs -> Char_devices xs
+        | x when x |> subset_of ["index"; "name"; "address"] -> return |> panda_plugin_info |> fun x -> Panda_plugin_info x
         | _ -> failwith (Printf.sprintf "unknown result %s" (Y.to_string return))
       )
       | `Assoc _ -> (return |> U.keys |> function
@@ -497,6 +551,18 @@ let json_of_message = function
       )
       | Device_del id -> "device_del", [ "id", `String id ]
       | Qom_list path -> "qom-list", ["path", `String path ]
+      | Panda_begin_record file_name -> "begin_record", ["file_name", `String file_name]
+      | Panda_begin_record_from (snapshot, file_name) -> "begin_record_from", ["snapshot", `String snapshot; "file_name", `String file_name]
+      | Panda_end_record -> "end_record", []
+      | Panda_begin_replay file_name -> "begin_replay", ["file_name", `String file_name]
+      | Panda_end_replay -> "end_replay", []
+      | Panda_load_plugin (file_name, plugin_name, plugin_args) ->
+        let file_name = match file_name with None -> fun x -> x | Some fn -> fun xs -> ("file_name", `String fn) :: xs in
+        let plugin_args = match plugin_args with None -> [] | Some pa -> ["plugin_args", `String pa] in
+        "load_plugin", file_name (("plugin_name", `String plugin_name) :: plugin_args)
+      | Panda_unload_plugin index -> "unload_plugin", ["index", `Int index]
+      | Panda_list_plugins -> "list_plugins", []
+      | Panda_plugin_cmd cmd -> "plugin_cmd", ["cmd", `String cmd]
     in
     let args = match args with [] -> [] | args -> [ "arguments", `Assoc args ] in
     `Assoc (("execute", `String cmd) :: id @ args)
