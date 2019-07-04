@@ -366,10 +366,10 @@ let message_of_string str =
     | "begin_record"             -> json |> panda_begin_record       |> fun x -> Panda_begin_record x
     | "begin_record_from"        -> json |> panda_begin_record_from  |> fun (x, y) -> Panda_begin_record_from (x, y)
     | "end_record"               -> Panda_end_record
-    | "begin_replay"             -> json |> panda_begin_replay       |> fun x -> Panda_begin_replay
+    | "begin_replay"             -> json |> panda_begin_replay       |> fun x -> Panda_begin_replay x
     | "end_replay"               -> Panda_end_replay
     | "load_plugin"              -> json |> panda_load_plugin        |> fun (x, y, z) -> Panda_load_plugin (x, y, z)
-    | "unload_plugin"            -> json |> panda_unload_plugin      |> fun x -> Panda_unload_plugin
+    | "unload_plugin"            -> json |> panda_unload_plugin      |> fun x -> Panda_unload_plugin x
     | "list_plugins"             -> Panda_list_plugins
     | "plugin_cmd"               -> json |> panda_plugin_cmd         |> fun x -> Panda_plugin_cmd x
     | x -> Printf.sprintf "unknown command %s" x |> failwith
@@ -437,7 +437,7 @@ let message_of_string str =
     let panda_plugin_info json =
       let index = json |> U.member "index" |> U.to_int in
       let name = json |> U.member "name" |> U.to_string in
-      let address = json |> U.member "address" |> U.to_string in
+      let address = json |> U.member "address" |> U.to_int in
       { index; name; address }
     in
     let result =
@@ -608,6 +608,7 @@ let json_of_message = function
           `Assoc ["label", `String label
                  ; "filename", `String filename
                  ; "frontend-open", `Bool frontend_open]))
+      | Panda_plugin_info {index; name; address} -> `Assoc [ "index", `Int index; "name", `String name; "address", `Int address ]
      in
     `Assoc (("return", result) :: id)
   | Error(id, e) ->
